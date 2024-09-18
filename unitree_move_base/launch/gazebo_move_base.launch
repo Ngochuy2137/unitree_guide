@@ -56,5 +56,8 @@
     </include>
 
     <!-- <include file="$(find unitree_move_base)/launch/pointCloud2LaserScan.launch"/> -->
+    
+    <!-- # rosrun unitree_guide junior_ctrl -->
+    <!-- <node pkg="unitree_guide" type="junior_ctrl" name="unitree_gazebo_servo" output="screen"/> -->
 
 </launch>
