@@ -1,0 +1,10 @@
+<launch>
+    <arg name="rname" default="go1"/>
+    # roslaunch slam_toolbox online_async.launch
+    <node pkg="slam_toolbox" type="async_slam_toolbox_node" name="slam_toolbox" output="screen">
+        <rosparam command="load" file="$(find slam_toolbox)/config/mapper_params_online_async.yaml" />
+        # remap scan topic
+        <remap from="scan" to="/$(arg rname)_gazebo/scan"/>
+        <param name="base_frame" value="base"/>
+    </node>
+</launch>
