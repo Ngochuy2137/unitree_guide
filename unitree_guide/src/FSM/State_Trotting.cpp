@@ -84,29 +84,42 @@ void State_Trotting::run(){
     _userValue = _lowState->userValue;
 
     getUserCmd();
-    calcCmd();
+    calcCmd();      // Tính toán các lệnh di chuyển dựa trên lệnh từ người dùng và trạng thái hiện tại của robot
+                    // Tính toán _vCmdGlobal, _wCmdGlobal, _pcd, _Rd,
 
-    _gait->setGait(_vCmdGlobal.segment(0,2), _wCmdGlobal(2), _gaitHeight);
-    _gait->run(_posFeetGlobalGoal, _velFeetGlobalGoal);
+    _gait->setGait(_vCmdGlobal.segment(0,2), _wCmdGlobal(2), _gaitHeight);      // Lệnh này thiết lập các tham số cần thiết cho bước đi (gait) của robot.
+                                                                                // _vCmdGlobal.segment(0,2):    vận tốc di chuyển của robot trên các trục X và Y
+                                                                                // _wCmdGlobal(2):              vận tốc góc của robot quanh trục Z
+                                                                                // _gaitHeight:                 chiều cao của bước đi
 
+    _gait->run(_posFeetGlobalGoal, _velFeetGlobalGoal);     // tính toán vị trí và vận tốc của 4 bàn chân robot dựa trên các thông số như vận tốc x, y và delta yaw được tính toán trước đó trong hàm setGait
+                                                            // _posFeetGlobalGoal: Vị trí mục tiêu của 4 bàn chân trong hệ tọa độ toàn cục. 
+                                                            // _velFeetGlobalGoal: Vận tốc mục tiêu của 4 bàn chân trong hệ tọa độ toàn cục.
+
+
+    // Tính toán mô-men xoắn (torque) cần thiết cho các khớp chân của robot để đạt được vị trí và vận tốc mong muốn của bàn chân. 
+    //      Dựa trên các lỗi vị trí và vận tốc, hàm này xác định lực cần thiết để điều khiển chân robot, sau đó chuyển đổi lực này thành mô-men xoắn trên các khớp.
     calcTau();
+    // Tính toán góc khớp (joint angles) và vận tốc khớp (joint velocities) mong muốn cho từng khớp của robot dựa trên vị trí và vận tốc bàn chân.
     calcQQd();
+    // Kết quả từ hàm calcTau() không trực tiếp sử dụng trong hàm calcQQd(). Hai hàm này hoạt động độc lập và phục vụ các mục đích khác nhau:
 
-    if(checkStepOrNot()){
-        _ctrlComp->setStartWave();
+
+    if(checkStepOrNot()){               // Kiểm tra xem robot có cần bước chân tiếp theo hay không
+        _ctrlComp->setStartWave();      // Nếu có, đặt trạng thái cho bước chân tiếp theo
     }else{
-        _ctrlComp->setAllStance();
+        _ctrlComp->setAllStance();      // Nếu không, đặt trạng thái cho tất cả các chân đều ở trạng thái đứng yên
     }
 
-    _lowCmd->setTau(_tau);
-    _lowCmd->setQ(vec34ToVec12(_qGoal));
-    _lowCmd->setQd(vec34ToVec12(_qdGoal));
+    _lowCmd->setTau(_tau);                      // Đặt mô-men vào low level control
+    _lowCmd->setQ(vec34ToVec12(_qGoal));        // Đặt góc khớp vào low level control
+    _lowCmd->setQd(vec34ToVec12(_qdGoal));      // Đặt vận tốc góc khớp vào low level control
 
     for(int i(0); i<4; ++i){
-        if((*_contact)(i) == 0){
-            _lowCmd->setSwingGain(i);
+        if((*_contact)(i) == 0){            // Nếu chân i không tiếp xúc với mặt đất
+            _lowCmd->setSwingGain(i);       // Đặt hệ số cho chế độ swing
         }else{
-            _lowCmd->setStableGain(i);
+            _lowCmd->setStableGain(i);      // Nếu chân tiếp đất, đặt hệ số cho chế độ ổn định
         }
     }
 
@@ -145,22 +158,34 @@ void State_Trotting::getUserCmd(){
     _dYawCmdPast = _dYawCmd;
 }
 
+// Tính toán _vCmdGlobal, _wCmdGlobal, _pcd, _Rd
 void State_Trotting::calcCmd(){
     /* Movement */
-    _vCmdGlobal = _B2G_RotMat * _vCmdBody;
+    _vCmdGlobal = _B2G_RotMat * _vCmdBody;      // Chuyển đổi vận tốc cơ thể (_vCmdBody) từ hệ tọa độ gắn với cơ thể (Body frame) 
+                                                // sang hệ tọa độ toàn cục (Global frame) thông qua ma trận quay _B2G_RotMat (Body-to-Global rotation matrix). 
+                                                // Kết quả được lưu vào _vCmdGlobal.
 
+    // Giới hạn giá trị vận tốc toàn cục trên các trục X và Y bằng cách sử dụng hàm saturation. 
+    // Vận tốc _vCmdGlobal được giữ trong khoảng từ (_velBody - 0.2) đến (_velBody + 0.2) để đảm bảo robot không thay đổi vận tốc quá nhanh hoặc chậm.
     _vCmdGlobal(0) = saturation(_vCmdGlobal(0), Vec2(_velBody(0)-0.2, _velBody(0)+0.2));
     _vCmdGlobal(1) = saturation(_vCmdGlobal(1), Vec2(_velBody(1)-0.2, _velBody(1)+0.2));
 
+    // Tính toán vị trí mục tiêu (_pcd) của robot bằng cách cộng vận tốc toàn cục (_vCmdGlobal) nhân với khoảng thời gian bước (delta time - _ctrlComp->dt).
+    // Sau đó, giới hạn vị trí mục tiêu để đảm bảo không vượt quá phạm vi cho phép của vị trí cơ thể hiện tại (từ _posBody - 0.05 đến _posBody + 0.05).
     _pcd(0) = saturation(_pcd(0) + _vCmdGlobal(0) * _ctrlComp->dt, Vec2(_posBody(0) - 0.05, _posBody(0) + 0.05));
     _pcd(1) = saturation(_pcd(1) + _vCmdGlobal(1) * _ctrlComp->dt, Vec2(_posBody(1) - 0.05, _posBody(1) + 0.05));
 
+    // Đặt vận tốc trên trục Z (chiều cao) về 0, do không cần điều chỉnh vận tốc theo chiều cao trong trạng thái trotting (chạy trên mặt phẳng).
     _vCmdGlobal(2) = 0;
 
     /* Turning */
+    // Tính toán lệnh quay (yaw) của robot bằng cách cộng thêm tốc độ quay (_dYawCmd) nhân với khoảng thời gian bước (_ctrlComp->dt). 
+    // Điều này làm cho góc quay yaw được cập nhật theo thời gian.
     _yawCmd = _yawCmd + _dYawCmd * _ctrlComp->dt;
 
+    // Tạo ra ma trận quay _Rd dựa trên góc quay yaw mới (_yawCmd). Ma trận này biểu diễn sự quay quanh trục Z (yaw rotation).
     _Rd = rotz(_yawCmd);
+    // Đặt tốc độ quay (yaw rate) vào _wCmdGlobal trên trục Z. Điều này cho phép điều khiển tốc độ quay của robot theo trục yaw.
     _wCmdGlobal(2) = _dYawCmd;
 }
 
