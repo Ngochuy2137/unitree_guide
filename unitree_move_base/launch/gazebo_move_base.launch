@@ -2,6 +2,7 @@
     <arg name="wname" default="smallRoom"/>
     <arg name="rname" default="go1"/>
     <arg name="robot_path" value="(find $(arg rname)_description)"/>
+    <arg name="robot_model" value="robot"/>
     <arg name="dollar" value="$"/>
 
     <arg name="paused" default="true"/>
@@ -23,7 +24,7 @@
 
     <!-- Load the URDF into the ROS Parameter Server -->
     <param name="robot_description"
-           command="$(find xacro)/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/robot.xacro' 
+           command="$(find xacro)/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/$(arg robot_model).xacro' 
            DEBUG:=$(arg user_debug)"/>
 
     <!-- Run a python script to the send a service call to gazebo_ros to spawn a URDF robot -->
@@ -58,6 +59,6 @@
     <!-- <include file="$(find unitree_move_base)/launch/pointCloud2LaserScan.launch"/> -->
     
     <!-- # rosrun unitree_guide junior_ctrl -->
-    <!-- <node pkg="unitree_guide" type="junior_ctrl" name="unitree_gazebo_servo" output="screen"/> -->
+    <node pkg="unitree_guide" type="junior_ctrl" name="unitree_gazebo_servo" output="screen"/>
 
 </launch>
